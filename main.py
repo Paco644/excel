@@ -1,4 +1,4 @@
-import os.path
+from os import path, system
 
 import gradio as gr
 import shutil
@@ -6,6 +6,7 @@ import shutil
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl import load_workbook, Workbook
 
+system("git pull")
 
 def increment_id(last_id):
     return last_id[:-4] + '0' * (4 - len(t := str(int(last_id.split('-')[2]) + 1))) + t
@@ -89,7 +90,7 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
             total_rows += 1
 
         shop_wb.save("new_shop_list.xlsx")
-        return gr.update(value=os.path.abspath("new_shop_list.xlsx"))
+        return gr.update(value=path.abspath("new_shop_list.xlsx"))
     else:
         raise Exception("Nothing new to add...")
 
@@ -105,4 +106,5 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
 
     send_button.click(transfer_data, inputs=[price_list, shop_list], outputs=[output])
 
-app.launch(show_error=True, server_port=8080, ssl_verify=True, enable_queue=True)
+app.queue()
+app.launch(show_error=True, server_port=8080, ssl_verify=True)
