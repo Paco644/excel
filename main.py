@@ -40,12 +40,19 @@ def increment_id(last_id):
     return last_id[:-4] + '0' * (4 - len(t := str(int(last_id.split('-')[2]) + 1))) + t
 
 
-def transfer_data(price_list, shop_list, progress=gr.Progress()):
+def send(price_list, shop_list, mode, settings):
+    if mode == 1:
+        return send_mode_init(price_list, shop_list)
+    else:
+        raise gr.Error("Noch nicht implementiert.")
+
+
+def send_mode_init(price_list, shop_list):
     if price_list is None:
-        raise Exception("Bitte beide Datein hochladen.")
+        raise gr.Error("Bitte die Preisliste hochladen.")
 
     if shop_list is None:
-        raise Exception("Bitte beide Datein hochladen.")
+        raise gr.Error("Bitte die Shopliste hochladen.")
 
     shutil.copy(price_list.name, "price_list.xlsx")
 
@@ -56,7 +63,7 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
         price_ws: Worksheet = price_wb['40495396']
         shop_ws: Worksheet = shop_wb['Artikel']
     except KeyError:
-        raise Exception("Preisliste enthält falsche daten.")
+        raise gr.Error("Preisliste enthält falsche daten.")
 
     price_data = price_ws['A:D']
     name = price_data[0]
@@ -68,7 +75,7 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
     bundles: list[Bundle] = []
     products: list[Product] = []
 
-    for i in progress.tqdm(range(1, len(name) - 5), unit="Rows", desc="Getting Pricelist data..."):
+    for i in range(1, len(name) - 5):
         _name = name[i].value
         _price = price[i].value
 
@@ -91,24 +98,24 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
             products.append(product)
 
     # Alle Einzelprodukte zu einer Liste zusammenfügen
-    for bundle in progress.tqdm(bundles, unit="Bundles", desc="Merging all Products..."):
+    for bundle in bundles:
         products += bundle.products
 
     # Alle Duplikate entfernen
     scanned = []
-    for product in progress.tqdm(products, unit="Products", desc="Removing Duplicates...."):
+    for product in products:
         if product.name not in scanned:
             scanned.append(product.name)
         else:
             products.remove(product)
 
     # IDS für die Einzelrprodukte setzen
-    for product in progress.tqdm(products, unit="Products", desc="Generating IDs..."):
+    for product in products:
         product.id = new_id
         new_id = increment_id(new_id)
 
     # Einzelprodukte in die Excel hinzufügen
-    for product in progress.tqdm(products, unit="Products", desc="Inserting Products into excel sheet..."):
+    for product in products:
         shop_ws.cell(row=total_rows, column=2).value = product.id
         shop_ws.cell(row=total_rows, column=4).value = product.name
         shop_ws.cell(row=total_rows, column=8).value = "Circ IT"
@@ -126,7 +133,7 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
         total_rows += 1
 
     # Alle Bundles durchgehen
-    for bundle in progress.tqdm(bundles, unit="Bundles", desc="Inserting Bundles into excel sheet..."):
+    for bundle in bundles:
 
         ids = ""
 
@@ -158,19 +165,41 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
 
     shop_wb.save("shop_list.xlsx")
 
-    return gr.update(value=path.abspath("shop_list.xlsx"))
+    return gr.update(value=path.abspath("shop_list.xlsx"), visible=True)
 
 
-with gr.Blocks(theme=gr.themes.Soft()) as app:
+modes_value = ["Zusammenführen", "Initiation"]
+default_mode = modes_value[0]
+
+settings_value = ["Zeilen beim Zusammenführen aktualisieren"]
+default_settings = [settings_value[0]]
+
+
+def on_mode_changed(mode):
+    if mode == 0:
+        return [gr.update(visible=False, value=None), gr.update(visible=False, value="shop_template.xlsx")]
+    else:
+        return [gr.update(visible=True, value=default_settings), gr.update(visible=True, value=None)]
+
+
+with gr.Blocks() as app:
+    with gr.Row():
+        mode = gr.Radio(label="Modus", choices=modes_value, value=default_mode, interactive=True,
+                        type="index")
+        settings = gr.CheckboxGroup(choices=settings_value, value=default_settings, label="Einstellungen (Vorschau)",
+                                    type="index", interactive=True)
     with gr.Row():
         price_list = gr.File(label="Preisliste")
-        shop_list = gr.File(label="Shopliste", value="shop_template.xlsx", visible=False)
+        shop_list = gr.File(label="Shopliste")
 
+    info = gr.Label(visible=False)
     send_button = gr.Button("Übertragen")
 
-    output = gr.File(label="Neue Shopliste")
+    output = gr.File(label="Neue Shopliste", visible=False)
 
-    send_button.click(transfer_data, inputs=[price_list, shop_list], outputs=[output])
+    send_button.click(send, inputs=[price_list, shop_list, mode, settings], outputs=[output])
+
+    mode.select(on_mode_changed, inputs=mode, outputs=[settings, shop_list])
 
 app.queue()
 app.launch(show_error=True, server_port=8080, ssl_verify=True)
