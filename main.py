@@ -8,11 +8,40 @@ from openpyxl import load_workbook, Workbook
 
 system("git pull")
 
+
+class Product:
+    def __init__(self, id: int, name: str, price: float):
+        self.id = id
+        self.name = name
+        self.price = price
+
+
+class Bundle:
+    def __init__(self, id: int, name: str, products=None):
+        if products is None:
+            products: list[Product] = []
+        self.name = name
+        self.id = id
+        self.products = products
+        self.sum = -1
+
+    def add_product(self, product: Product):
+        self.products.append(product)
+
+    def set_sum(self, sum: float):
+        self.sum = sum
+
+    def calculate_sum(self):
+        for p in self.products:
+            self.sum += p.price
+        self.sum += 1
+
+
 def increment_id(last_id):
     return last_id[:-4] + '0' * (4 - len(t := str(int(last_id.split('-')[2]) + 1))) + t
 
 
-def transfer_data(price_list, shop_list, progress=gr.Progress()):
+def transfer_data(price_list, shop_list):
     if price_list is None:
         raise Exception("Bitte beide Datein hochladen!")
 
@@ -20,85 +49,129 @@ def transfer_data(price_list, shop_list, progress=gr.Progress()):
         raise Exception("Bitte beide Datein hochladen!")
 
     shutil.copy(price_list.name, "price_list.xlsx")
-    shutil.copy(shop_list.name, "shop_list.xlsx")
 
     price_wb: Workbook = load_workbook("price_list.xlsx")
-    shop_wb: Workbook = load_workbook("shop_list.xlsx")
+    shop_wb: Workbook = load_workbook("shop_template.xlsx")
 
-    # Get all already known ids
-    try:
-        shop_ws: Worksheet = shop_wb['Artikel']
-    except KeyError:
-        raise Exception("Shopliste enthält falsche daten, vielleicht vertauscht?")
-
-    known_articles = {}
-
-    shop_data = shop_ws['B:D']
-    ids = shop_data[0]
-    name = shop_data[2]
-
-    for i in range(3, len(ids)):
-        _id = ids[i].value
-        _name = name[i].value
-        if _id is None or _name is None:
-            continue
-        _name = _name.strip()
-        known_articles[_id] = _name
     try:
         price_ws: Worksheet = price_wb['40495396']
+        shop_ws: Worksheet = shop_wb['Artikel']
     except KeyError:
         raise Exception("Preisliste enthält falsche daten, vielleicht vertauscht?")
 
-    new_articles = {}
-
-    price_data = price_ws['A:C']
+    price_data = price_ws['A:D']
     name = price_data[0]
-    price = price_data[2]
+    price = price_data[3]
+    bundle = None
+    new_id = increment_id("HW-CIT-0000")
+    total_rows = 4
+
+    bundles: list[Bundle] = []
+    products: list[Product] = []
 
     for i in range(1, len(name) - 5):
         _name = name[i].value
         _price = price[i].value
-        if _name == "Summe" or _name is None or _price is None:
+
+        if _name is None:
             continue
-        _name = _name.strip()
-        # Check if name exists in known articles
-        if _name not in known_articles.values():
-            new_articles[_name] = _price
+        if _name == "Summe":
+            bundle.calculate_sum()
+            bundles.append(bundle)
+            bundle = None
+            continue
+        if _price is None:
+            bundle: Bundle = Bundle(new_id, _name)
+            new_id = increment_id(new_id)
+            continue
 
-    print(new_articles)
+        product = Product(new_id, _name, _price)
 
-    if len(new_articles) > 0:
+        if bundle:
+            bundle.add_product(product)
+        else:
+            products.append(product)
 
-        last_id = str(list(known_articles)[-1])
-        new_id = increment_id(last_id)
-        total_rows = len(ids) + 1
+        new_id = increment_id(new_id)
 
-        for new_article in progress.tqdm(new_articles, desc="Inserting rows...", unit="rows"):
-            shop_ws.cell(row=total_rows, column=2).value = new_id
-            shop_ws.cell(row=total_rows, column=4).value = new_article
-            shop_ws.cell(row=total_rows, column=5).value = "BITTE AUSFÜLLEN"
+    already_added = []
+
+    for bundle in bundles:
+        shop_ws.cell(row=total_rows, column=1).value = "SET"
+        shop_ws.cell(row=total_rows, column=2).value = bundle.id
+        shop_ws.cell(row=total_rows, column=4).value = bundle.name
+        shop_ws.cell(row=total_rows, column=5).value = "BUNDLE BESCHREIBUNG"
+
+        ids = ""
+        for product in bundle.products:
+            ids += "\n" + str(product.id)
+
+        shop_ws.cell(row=total_rows, column=6).value = "enthält Artikel:" + ids
+        shop_ws.cell(row=total_rows, column=8).value = "Circ IT"
+        shop_ws.cell(row=total_rows, column=9).value = "20"
+        shop_ws.cell(row=total_rows, column=12).value = "Stück"
+        shop_ws.cell(row=total_rows, column=16).value = bundle.sum
+        shop_ws.cell(row=total_rows, column=20).value = "EUR"
+        shop_ws.cell(row=total_rows, column=21).value = "19"
+        shop_ws.cell(row=total_rows, column=21).value = str(bundle.id) + ".png"
+        shop_ws.cell(row=total_rows, column=25).value = "png"
+
+        shop_ws.cell(row=total_rows, column=16).number_format = '#,##0.00€'
+        shop_ws.cell(row=total_rows, column=21).number_format = "00"
+
+        total_rows += 1
+
+        for product in bundle.products:
+            if product.name in already_added:
+                continue
+            shop_ws.cell(row=total_rows, column=2).value = product.id
+            shop_ws.cell(row=total_rows, column=4).value = product.name
+            shop_ws.cell(row=total_rows, column=5).value = "PRODUKT BESCHREIBUNG"
             shop_ws.cell(row=total_rows, column=8).value = "Circ IT"
+            shop_ws.cell(row=total_rows, column=9).value = "20"
             shop_ws.cell(row=total_rows, column=12).value = "Stück"
-            shop_ws.cell(row=total_rows, column=16).value = new_articles[new_article]
+            shop_ws.cell(row=total_rows, column=16).value = product.price
             shop_ws.cell(row=total_rows, column=20).value = "EUR"
             shop_ws.cell(row=total_rows, column=21).value = "19"
+            shop_ws.cell(row=total_rows, column=21).value = str(product.id) + ".png"
+            shop_ws.cell(row=total_rows, column=25).value = "png"
 
             shop_ws.cell(row=total_rows, column=16).number_format = '#,##0.00€'
             shop_ws.cell(row=total_rows, column=21).number_format = "00"
-            # update values
-            new_id = increment_id(new_id)
-            total_rows += 1
 
-        shop_wb.save("new_shop_list.xlsx")
-        return gr.update(value=path.abspath("new_shop_list.xlsx"))
-    else:
-        raise Exception("Nothing new to add...")
+            total_rows += 1
+            already_added.append(product.name)
+
+    for product in products:
+        if product.name in already_added:
+            continue
+        shop_ws.cell(row=total_rows, column=2).value = product.id
+        shop_ws.cell(row=total_rows, column=4).value = product.name
+        shop_ws.cell(row=total_rows, column=5).value = "BITTE AUSFÜLLEN"
+        shop_ws.cell(row=total_rows, column=8).value = "Circ IT"
+        shop_ws.cell(row=total_rows, column=9).value = "20"
+        shop_ws.cell(row=total_rows, column=12).value = "Stück"
+        shop_ws.cell(row=total_rows, column=16).value = product.price
+        shop_ws.cell(row=total_rows, column=20).value = "EUR"
+        shop_ws.cell(row=total_rows, column=21).value = "19"
+        shop_ws.cell(row=total_rows, column=21).value = str(product.id) + ".png"
+        shop_ws.cell(row=total_rows, column=25).value = "png"
+
+        shop_ws.cell(row=total_rows, column=16).number_format = '#,##0.00€'
+        shop_ws.cell(row=total_rows, column=21).number_format = "00"
+
+        total_rows += 1
+        already_added.append(product.name)
+
+    shop_wb.save("shop_list.xlsx")
+
+    return gr.update(value=path.abspath("shop_list.xlsx"))
 
 
 with gr.Blocks(theme=gr.themes.Soft()) as app:
     with gr.Row():
         price_list = gr.File(label="Preisliste")
-        shop_list = gr.File(label="Shopliste")
+        shop_list = gr.File(label="Shopliste", value="shop_template.xlsx", visible=False)
 
     send_button = gr.Button("Übertragen")
 
@@ -106,5 +179,4 @@ with gr.Blocks(theme=gr.themes.Soft()) as app:
 
     send_button.click(transfer_data, inputs=[price_list, shop_list], outputs=[output])
 
-app.queue()
 app.launch(show_error=True, server_port=8080, ssl_verify=True)
