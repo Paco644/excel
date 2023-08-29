@@ -168,7 +168,7 @@ def send_mode_init(price_list, shop_list):
     return gr.update(value=path.abspath("shop_list.xlsx"), visible=True)
 
 
-modes_value = ["Zusammenführen (WIP)", "Initiation"]
+modes_value = ["Zusammenführen (Nicht implementiert)", "Initiation"]
 default_mode = modes_value[0]
 
 settings_value = ["Zeilen beim Zusammenführen aktualisieren"]
