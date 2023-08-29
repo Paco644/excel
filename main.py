@@ -44,15 +44,141 @@ def send(price_list, shop_list, mode, settings):
     if mode == 1:
         return send_mode_init(price_list, shop_list)
     else:
-        raise gr.Error("Noch nicht implementiert.")
+        return send_mode_merge(price_list, shop_list, settings)
+
+
+def send_mode_merge(price_list, shop_list, settings):
+    if not settings:
+        raise gr.Error("Bitte mindestens eine Option für das Zusammenführen auswählen")
+
+    if price_list is None:
+        raise gr.Error("Bitte die Preisliste hochladen")
+
+    if shop_list is None:
+        raise gr.Error("Bitte die Shopliste hochladen")
+
+    shutil.copy(price_list.name, "price_list.xlsx")
+    shutil.copy(shop_list.name, "shop_list_to_merge.xlsx")
+
+    price_wb: Workbook = load_workbook("price_list.xlsx")
+    shop_wb: Workbook = load_workbook("shop_list_to_merge.xlsx")
+
+    try:
+        price_ws: Worksheet = price_wb['40495396']
+        shop_ws: Worksheet = shop_wb['Artikel']
+    except KeyError:
+        raise gr.Error("Listen enthalten falsche Daten")
+
+    shop_data = shop_ws['A:P']
+    names = shop_data[3]
+    bundle_products = shop_data[5]
+
+    existing_products: list[Product] = []
+    existing_bundles: list[Bundle] = []
+
+    for i in range(3, len(names) - 1):
+        name = names[i].value
+        id = shop_data[1][i].value
+        price = shop_data[15][i].value
+        is_bundle = shop_data[0][i].value == "SET"
+
+        if not name:
+            continue
+
+        if not id:
+            continue
+
+        name = name.strip()
+
+        if not is_bundle:
+            product = Product(name, price)
+            product.id = id
+            existing_products.append(product)
+        else:
+            temp_products: list[Product] = []
+            for product_id in bundle_products[i].value.split("\n")[1:]:
+                for product in existing_products:
+                    if product.id == product_id:
+                        temp_products.append(product)
+            bundle = Bundle(name, temp_products)
+            existing_bundles.append(bundle)
+
+    price_data = price_ws["A:D"]
+    names = price_data[0]
+    prices = price_data[3]
+    product_to_add: list[Product] = []
+    bundles_to_add: list[Bundle] = []
+
+    for i in range(2, len(names) - 5):
+        name = names[i].value
+        price = prices[i].value
+
+        if not name:
+            continue
+
+        name = name.strip()
+        if name == "Summe":
+            continue
+
+        if not price:
+            found = False
+            for bundle in existing_bundles:
+                if name == bundle.name:
+                    found = True
+                    break
+                    # TODO
+                    # Schauen ob werte sich unterscheiden
+            if not found:
+                print(name, "exestiert nicht!")
+        else:
+            found = False
+            for product in existing_products:
+                if name == product.name:
+                    found = True
+
+                    # Wenn Preis Änderung größer als 0.1
+                    if abs(product.price - price) > .1:
+                        print(name)
+                    break
+            if not found:
+                product_to_add.append(Product(name, price))
+
+    # Letzte bekannte ID bekommen
+    last_id = int(existing_products[-1].id[7:]) + len(existing_bundles)
+
+    next_free_row = last_id + 4  # TODO Vielleicht einen Offset? Template Offset von 3+1
+
+    string_id = "HW-CIT-" + "0" * (4 - len(str(last_id))) + str(last_id + 1)
+
+    print(string_id)
+    print(next_free_row)
+
+    for product in product_to_add:
+        # shop_ws.move_range(f"A{last_id+4}:AK500", rows=1, cols=0)
+        shop_ws.cell(row=next_free_row, column=2).value = string_id
+        shop_ws.cell(row=next_free_row, column=4).value = product.name
+        shop_ws.cell(row=next_free_row, column=8).value = "Circ IT"
+        shop_ws.cell(row=next_free_row, column=9).value = "20"
+        shop_ws.cell(row=next_free_row, column=12).value = "Stück"
+        shop_ws.cell(row=next_free_row, column=16).value = product.price
+        shop_ws.cell(row=next_free_row, column=20).value = "EUR"
+        shop_ws.cell(row=next_free_row, column=21).value = "19"
+        shop_ws.cell(row=next_free_row, column=21).value = string_id + ".png"
+        shop_ws.cell(row=next_free_row, column=25).value = "png"
+        shop_ws.cell(row=next_free_row, column=16).number_format = '#,##0.00€'
+        shop_ws.cell(row=next_free_row, column=21).number_format = "00"
+
+    shop_wb.save("shop_list_merged.xlsx")
+
+    return gr.update(value=path.abspath("shop_list_merged.xlsx"), visible=True)
 
 
 def send_mode_init(price_list, shop_list):
     if price_list is None:
-        raise gr.Error("Bitte die Preisliste hochladen.")
+        raise gr.Error("Bitte die Preisliste hochladen")
 
     if shop_list is None:
-        raise gr.Error("Bitte die Shopliste hochladen.")
+        raise gr.Error("Bitte die Shopliste hochladen")
 
     shutil.copy(price_list.name, "price_list.xlsx")
 
@@ -63,7 +189,7 @@ def send_mode_init(price_list, shop_list):
         price_ws: Worksheet = price_wb['40495396']
         shop_ws: Worksheet = shop_wb['Artikel']
     except KeyError:
-        raise gr.Error("Preisliste enthält falsche daten.")
+        raise gr.Error("Preisliste enthält falsche Daten")
 
     price_data = price_ws['A:D']
     name = price_data[0]
@@ -81,6 +207,8 @@ def send_mode_init(price_list, shop_list):
 
         if _name is None:
             continue
+
+        name = name.strip()
         if _name == "Summe":
             bundle.calculate_sum()
             bundles.append(bundle)
@@ -171,8 +299,8 @@ def send_mode_init(price_list, shop_list):
 modes_value = ["Zusammenführen (Nicht implementiert)", "Initiation"]
 default_mode = modes_value[0]
 
-settings_value = ["Zeilen beim Zusammenführen aktualisieren"]
-default_settings = [settings_value[0]]
+settings_value = ["Neue Daten einpflegen", "Datenänderungen einpflegen", "Fehlerhafte Daten löschen"]
+default_settings = [settings_value[0], settings_value[1]]
 
 
 def on_mode_changed(mode):
@@ -183,20 +311,25 @@ def on_mode_changed(mode):
 
 
 with gr.Blocks() as app:
-    with gr.Row():
-        mode = gr.Radio(label="Modus", choices=modes_value, value=default_mode, interactive=True,
-                        type="index")
-        settings = gr.CheckboxGroup(choices=settings_value, value=default_settings, label="Einstellungen (Vorschau)",
-                                    type="index", interactive=True)
-    with gr.Row():
-        price_list = gr.File(label="Preisliste")
-        shop_list = gr.File(label="Shopliste")
+    with gr.Tab(label="Automatisierung Shopliste"):
+        with gr.Row():
+            mode = gr.Radio(label="Modus", choices=modes_value, value=default_mode, interactive=True,
+                            type="index")
+            settings = gr.CheckboxGroup(choices=settings_value, value=default_settings,
+                                        label="Zusammenführen - Optionen (Vorschau)",
+                                        type="index", interactive=True)
+        with gr.Row():
+            price_list = gr.File(label="Preisliste")
+            shop_list = gr.File(label="Shopliste")
 
-    info = gr.Label(visible=False)
-    send_button = gr.Button("Übertragen")
+        info = gr.Label(visible=False)
+        send_button = gr.Button("Übertragen")
 
-    output = gr.File(label="Neue Shopliste", visible=False)
-
+        output = gr.File(label="Neue Shopliste", visible=False)
+    with gr.Tab(label="Manuelles ändern"):
+        gr.Label("", show_label=False)
+    with gr.Tab(label="Einstellungen"):
+        gr.Label("", show_label=False)
     send_button.click(send, inputs=[price_list, shop_list, mode, settings], outputs=[output])
 
     mode.select(on_mode_changed, inputs=mode, outputs=[settings, shop_list])
