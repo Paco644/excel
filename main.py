@@ -1,3 +1,4 @@
+import os
 from os import path, system
 
 import gradio as gr
@@ -47,6 +48,11 @@ def send(price_list, shop_list, mode, settings):
         return send_mode_merge(price_list, shop_list, settings)
 
 
+def on_price_list_change(price_list):
+    if price_list:
+        print(f"Price list change detected.\nCopying new price list to {os.getcwd()}")
+        shutil.copy(price_list.name, "price_list.xlsx")
+
 def send_mode_merge(price_list, shop_list, settings):
     if not settings:
         raise gr.Error("Bitte mindestens eine Option für das Zusammenführen auswählen")
@@ -57,7 +63,6 @@ def send_mode_merge(price_list, shop_list, settings):
     if shop_list is None:
         raise gr.Error("Bitte die Shopliste hochladen")
 
-    shutil.copy(price_list.name, "price_list.xlsx")
     shutil.copy(shop_list.name, "shop_list_to_merge.xlsx")
 
     price_wb: Workbook = load_workbook("price_list.xlsx")
@@ -135,10 +140,10 @@ def send_mode_merge(price_list, shop_list, settings):
             for product in existing_products:
                 if name == product.name:
                     found = True
-
-                    # Wenn Preis Änderung größer als 0.1
-                    if abs(product.price - price) > .1:
-                        print(name)
+                    # Wenn Preis Änderung größer als 5 Cent
+                    if (diff := abs(product.price - price)) > 0.05:
+                        print(f"Price change of {diff} from {name} at cell {i}")
+                        #TODO Neue Daten einpflegen
                     break
             if not found:
                 product_to_add.append(Product(name, price))
@@ -168,6 +173,9 @@ def send_mode_merge(price_list, shop_list, settings):
         shop_ws.cell(row=next_free_row, column=16).number_format = '#,##0.00€'
         shop_ws.cell(row=next_free_row, column=21).number_format = "00"
 
+    for bundle in bundles_to_add:
+        print("test")
+
     shop_wb.save("shop_list_merged.xlsx")
 
     return gr.update(value=path.abspath("shop_list_merged.xlsx"), visible=True)
@@ -180,8 +188,6 @@ def send_mode_init(price_list, shop_list):
     if shop_list is None:
         raise gr.Error("Bitte die Shopliste hochladen")
 
-    shutil.copy(price_list.name, "price_list.xlsx")
-
     price_wb: Workbook = load_workbook("price_list.xlsx")
     shop_wb: Workbook = load_workbook("shop_template.xlsx")
 
@@ -192,8 +198,8 @@ def send_mode_init(price_list, shop_list):
         raise gr.Error("Preisliste enthält falsche Daten")
 
     price_data = price_ws['A:D']
-    name = price_data[0]
-    price = price_data[3]
+    names = price_data[0]
+    prices = price_data[3]
     bundle = None
     new_id = increment_id("HW-CIT-0000")
     total_rows = 4
@@ -201,24 +207,24 @@ def send_mode_init(price_list, shop_list):
     bundles: list[Bundle] = []
     products: list[Product] = []
 
-    for i in range(1, len(name) - 5):
-        _name = name[i].value
-        _price = price[i].value
+    for i in range(1, len(names) - 5):
+        name = names[i].value
+        price = prices[i].value
 
-        if _name is None:
+        if name is None:
             continue
 
         name = name.strip()
-        if _name == "Summe":
+        if name == "Summe":
             bundle.calculate_sum()
             bundles.append(bundle)
             bundle = None
             continue
-        if _price is None:
-            bundle: Bundle = Bundle(_name)
+        if price is None:
+            bundle: Bundle = Bundle(name)
             continue
 
-        product = Product(_name, _price)
+        product = Product(name, price)
 
         if bundle:
             bundle.add_product(product)
@@ -230,12 +236,18 @@ def send_mode_init(price_list, shop_list):
         products += bundle.products
 
     # Alle Duplikate entfernen
-    scanned = []
+    unique_products = []
+    unique_names = set()
+
     for product in products:
-        if product.name not in scanned:
-            scanned.append(product.name)
-        else:
-            products.remove(product)
+        if product.name not in unique_names:
+            unique_products.append(product)
+            unique_names.add(product.name)
+
+    products = unique_products
+
+    for p in products:
+        print(p.name)
 
     # IDS für die Einzelrprodukte setzen
     for product in products:
@@ -319,7 +331,7 @@ with gr.Blocks() as app:
                                         label="Zusammenführen - Optionen (Vorschau)",
                                         type="index", interactive=True)
         with gr.Row():
-            price_list = gr.File(label="Preisliste")
+
             shop_list = gr.File(label="Shopliste")
 
         info = gr.Label(visible=False)
@@ -329,10 +341,10 @@ with gr.Blocks() as app:
     with gr.Tab(label="Manuelles ändern"):
         gr.Label("", show_label=False)
     with gr.Tab(label="Einstellungen"):
-        gr.Label("", show_label=False)
+        price_list = gr.File(label="Neuste Preisliste",  value="price_list.xlsx")
     send_button.click(send, inputs=[price_list, shop_list, mode, settings], outputs=[output])
-
+    price_list.change(on_price_list_change, inputs=price_list)
     mode.select(on_mode_changed, inputs=mode, outputs=[settings, shop_list])
 
 app.queue()
-app.launch(show_error=True, server_port=8080, ssl_verify=True)
+app.launch(show_error=True, server_port=80, ssl_verify=True)
