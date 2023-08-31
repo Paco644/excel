@@ -47,6 +47,15 @@ def send(price_list, shop_list, mode, settings):
     else:
         return send_mode_merge(price_list, shop_list, settings)
 
+def get_cell_from_id(worksheet: Worksheet, id: str):
+    for cell in worksheet["B"]:
+        p_id = cell.value
+
+        if id is None:
+            continue
+
+        if p_id == id:
+            return cell
 
 def on_price_list_change(price_list):
     if price_list:
@@ -143,6 +152,9 @@ def send_mode_merge(price_list, shop_list, settings):
                     # Wenn Preis Änderung größer als 5 Cent
                     if (diff := abs(product.price - price)) > 0.05:
                         print(f"Price change of {diff} from {name} at cell {i}")
+
+                        get_cell_from_id(shop_ws, product.id)
+
                         #TODO Neue Daten einpflegen
                     break
             if not found:

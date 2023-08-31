@@ -8,6 +8,7 @@ __pycache__/
 
 *.xlsx
 !shop_template.xlsx
+!price_list.xlsx
 
 # Distribution / packaging
 .Python
